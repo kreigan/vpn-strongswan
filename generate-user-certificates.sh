@@ -1,7 +1,6 @@
 #!/bin/bash -e
 
 declare -r swanPath="/etc/swanctl"
-declare -r userPath="$HOME/swanctl/user"
 declare -r keyPath="${swanPath}/pkcs8"
 declare -r pkcs12Path="${swanPath}/pkcs12"
 declare -r certPath="${swanPath}/x509"
@@ -10,10 +9,6 @@ declare -r privateKeyExtension="pem"
 declare -r certificateRequestExtension="pem"
 declare -r certificateExtension="pem"
 declare -r pkcs12Extension="p12"
-
-declare -r packedPrivateKeyName="key.$privateKeyExtension"
-declare -r packedCertificateName="certificate.$certificateExtension"
-declare -r packedPkcs12Name="certificate.$pkcs12Extension"
 
 declare -Ar rdnTypes=(
     [commonName]="CN"
@@ -31,19 +26,22 @@ function log() {
 
 function help()
 {
-   # Display Help
-   echo "generate-user-certificate [-h] | -Ckl [-ngscoa]"
-   echo "   h     Print this help and exit."
-   echo "   C     Path to CA certificate."
-   echo "   k     Path to CA certificate private key."
+   echo "Generates an X.509 certificate signed with a CA's private key. Puts all generated files to a .zip archive."
+   echo "generate-user-certificate -c <ca_certificate> -k <ca_private_key> -l years -z <output_zip_file>"
+   echo "                          [-n commonName] [-g givenName] [-s surname] [-C country] [-o organization]"
+   echo "                          [-a subjectAlternativeName]"
+   echo "   -h     Print this help and exit"
+   echo "   -c     Path to CA certificate"
+   echo "   -k     Path to CA certificate private key"
+   echo "   -z     Path to the output .zip file"
    echo "certificate parameters:"
-   echo "   l     Validity period in years. The end date cannot be later than the CA certificate expiration date."
-   echo "   n     Common Name (CN). If not provided, composed from Given Name (GN) and Surname (SN). Exits if no GN and SN is specified."
-   echo "   g     Given Name (GN)."
-   echo "   s     Surname (SN)."
-   echo "   c     Country Name (C)."
-   echo "   o     Organization Name (O)."
-   echo "   a     Subject alternative name. If not provided, will be set to Common Name (CN)"
+   echo "   -l     Certificate lifetime in years. The end date cannot be later than the CA certificate expiration date"
+   echo "   -n     Common Name (CN). If not provided, composed from Given Name (GN) and Surname (SN). Exits if no GN and SN is specified"
+   echo "   -g     Given Name (GN)"
+   echo "   -s     Surname (SN)"
+   echo "   -C     Country Name (C)"
+   echo "   -o     Organization Name (O)"
+   echo "   -a     Subject alternative name. Default: Common Name (CN)"
    echo
 }
 
@@ -52,7 +50,7 @@ function exit_wrong_usage()
    local message=${1}
    if [ ${message:+x} ]
    then
-      log "Wrong usage: %s." "$message"
+      log "Wrong usage: %s" "$message"
    fi
    help
    exit 1
@@ -191,40 +189,62 @@ function generatePkcs12() {
 }
 
 function packToZip() {
-    local folder="${1}"
+    local output="${1}"
     local privateKey="${2}"
     local certificate="${3}"
     local pkcs12="${4}"
 
-    cp "$privateKey" "$folder/$packedPrivateKeyName"
-    cp "$cert" "$folder/$packedCertificateName"
-    cp "$pkcs12" "$folder/$packedPkcs12Name"
+    tmpFolder="$(mktemp -d)"
+    log "Temp folder %s created" "$tmpFolder"
 
-    zip -rmq "${folder}.zip" "$folder"
-    chown -R $USER:$USER "${folder}.zip"
-    log "Generated files were put to a %s" "${folder}.zip"
+    declare -r packedPrivateKeyName="key.$privateKeyExtension"
+    declare -r packedCertificateName="certificate.$certificateExtension"
+    declare -r packedPkcs12Name="certificate.$pkcs12Extension"
+
+    cp "$privateKey" "$tmpFolder/$packedPrivateKeyName"
+    cp "$cert" "$tmpFolder/$packedCertificateName"
+    cp "$pkcs12" "$tmpFolder/$packedPkcs12Name"
+
+    zip -jrmq "$output" "${tmpFolder}"
+    log "Generated files were put in %s" "$output"
+
+    rmdir "$tmpFolder"
 }
 
 declare -A data
 while [ $OPTIND -le "$#" ]
 do
-   if getopts ":hC:k:l:n:g:s:c:o:a:" option
+   if getopts ":hc:k:l:z:n:g:s:C:o:a:" option
    then
       case $option in
          h) help; exit;;
-         C) declare -r caCert="$OPTARG";;
+         c) declare -r caCert="$OPTARG";;
          k) declare -r caKey="$OPTARG";;
          l) declare -r certificateLifetimeYears="$OPTARG";;
+         z) declare -r outputFile="$OPTARG";;
          n) data[commonName]="$OPTARG";;
          g) data[givenName]="$OPTARG";;
          s) data[surname]="$OPTARG";;
-         c) data[countryName]="$OPTARG";;
+         C) data[countryName]="$OPTARG";;
          o) data[organizationName]="$OPTARG";;
          a) alternativeName="$OPTARG";;
          *) exit_wrong_usage "invalid option '$OPTARG'";;
       esac
   fi
 done
+
+if [ -z "${outputFile// }"]
+then
+    log "Output filename cannot be empty."
+    exit 1
+else
+    outputFolder="$(dirname "$outputFile")"
+    if [ ! -w "$outputFolder" ]
+    then
+        log "%s is not writeable." "$outputFolder"
+        exit 1
+    fi
+fi
 
 if [ -z "${data[commonName]// }" ]
 then
@@ -282,11 +302,6 @@ generatePrivateKey "$privateKey"
 log "Generated a new private key %s" "$privateKey"
 
 
-userFolder="$userPath/$normalizedCommonName"
-mkdir -p "$userFolder"
-log "User folder %s created" "$userFolder"
-
-
 log "Parameters to generate a certificate request:"
 declare -A rdnValues
 for key in "${!data[@]}"
@@ -301,7 +316,7 @@ do
 done
 
 log "Generating a CSR using private key %s" "$privateKey"
-csr="$userFolder/csr.pem"
+csr="$(mktemp)"
 dn="$(joinBy ', ' ${rdnValues[@]})"
 generateCsr "$csr" "$privateKey" "$dn" "$alternativeName"
 log "Generated a CSR:\n\tsubject='%s'\n\tsubject alternative name='%s'" "$dn" "$alternativeName"
@@ -328,6 +343,6 @@ log "Collecting previously generated files in a PKCS12 package"
 pkcs12="$pkcs12Path/$normalizedCommonName.$pkcs12Extension"
 generatePkcs12 "$pkcs12" "$privateKey" "$cert" "$commonName"
 fixPermissions "$pkcs12"
-log "Container %s created" "$privateKey" "$certificate" "$pkcs12"
+log "Container %s created" "$pkcs12"
 
-packToZip "$userFolder" "$privateKey" "$cert" "$pkcs12"
+packToZip "$outputFile" "$privateKey" "$cert" "$pkcs12"
