@@ -281,6 +281,7 @@ else
     if [ $supposedExpirationEpoch -ge $caCertificateExpirationEpoch ]
     then
         log "[ERR] CA certificate expires earlier than in %d year(s): %s >= %s" $certificateLifetimeYears "$supposedExpirationDate" "$caCertificateExpirationDate"
+        exit 1
     fi
 fi
 
