@@ -105,7 +105,7 @@ function addYears() {
 function getDaysBetweenNowPlusYears() {
     declare -i years=${1}
     local futureDate="$(addYears $years)"
-    echo $[(`toEpoch "$futureDate"` - `toEpoch "$(date)"` + 1) + 86400/ 86400]
+    echo $[(`toEpoch "$futureDate"` - `toEpoch "$(date)"` + 1) / 86400]
 }
 
 function getCertificatecommonName() {
