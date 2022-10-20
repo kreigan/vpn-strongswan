@@ -298,6 +298,11 @@ log "Normalized: '%s' -> '%s'" "$commonName" "$normalizedCommonName"
 
 
 privateKey="$keyPath/$normalizedCommonName.$privateKeyExtension"
+if [ -e "$privateKey" ]
+then
+    log "Private key file %s already exists. Rename or remove it before proceeding." "$privateKey"
+    exit 1
+fi
 generatePrivateKey "$privateKey"
 log "Generated a new private key %s" "$privateKey"
 
