@@ -233,7 +233,7 @@ do
   fi
 done
 
-if [ -z "${outputFile// }"]
+if [ -z "${outputFile// }" ]
 then
     log "Output filename cannot be empty."
     exit 1
